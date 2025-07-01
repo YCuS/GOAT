@@ -1,0 +1,18 @@
+{
+  "parameters": {
+    "pwm2fm": 45,
+    "bayes": true,
+    "thr1": 95.0,
+    "thr2": 75.0,
+    "simulation_iterations": 10000
+  },
+  "paths": {
+    "original_pwm_file": "/mnt/liuyitong/workspace/methods/GOAT/streme.txt",
+    "sequence_file": "/mnt/liuyitong/workspace/data/esb/species/Saccharomyces/Saccharomyces_cerevisiae/Saccharomyces_cerevisiae_R64-3-1.fasta",
+    "results_file": "results.txt"
+  },
+  "settings": {
+    "core_length": 5,
+    "precision": 6
+  }
+}
