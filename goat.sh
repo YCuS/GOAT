@@ -25,19 +25,19 @@ while [[ $# -gt 0 ]]; do
             res_file="$2"
             shift 2
             ;;
-        -motif)
+        -thr1)
             thr1="$2"
             shift 2
             ;;
-        -core)
+        -thr2)
             thr2="$2"
             shift 2
             ;;
-        -num)
+        -pwm2fm)
             num="$2"
             shift 2
             ;;
-        -base)
+        -core)
             core="$2"
             shift 2
             ;;
@@ -45,7 +45,7 @@ while [[ $# -gt 0 ]]; do
             bayes_raw="$2"
             shift 2
             ;;
-        -iteration)
+        -sim)
             iters="$2"
             shift 2
             ;;
