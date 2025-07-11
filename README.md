@@ -1,23 +1,22 @@
 # Goodness Of Alignment Test (GOAT)
 
-This is a tool using GOAT (Goodness Of Alignment Test) to search for motifs in DNA(RNA) sequences using Position Weight Matrices (PWMs).
+This is a tool for searching motifs in DNA/RNA sequences using Position Weight Matrices (PWMs) and Monte Carlo simulation, optimized for Linux systems.
 
 ---
 
 ## Prerequisites
 
-- macOS or Linux
+- Linux
 - A C++17 compiler (e.g. `g++`)
 - `jq` (for JSON parsing)
-- Bash or Fish shell
+- Bash shell
 
 ---
 
 ## Repository Structure
 
 ```bash
-compile.sh           # Build all binaries and main executable
-goat.sh              # Command-line wrapper script
+compile.sh           # Build all binaries
 run.sh               # Orchestrate config.json workflow
 config.json          # User parameters and paths
 meme2pwm.cpp         # MEME→PWM converter
@@ -36,32 +35,26 @@ Edit `config.json` to suit your data and parameters:
 {
   "paths": {
     "original_pwm_file": "path/to/input.meme",
-    "sequence_file": "path/to/seq.fasta",
-    "results_file": "results.txt"
+    "sequence_file": "path/to/input.fasta or directory", // FASTA file or directory of FASTA files
+    "results_file": "results.txt or directory" // Output file (single) or directory (batch)
   },
   "parameters": {
     "pwm2fm": 45, // Pseudocount multiplier
     "bayes": true, // Enable Bayesian smoothing
-    "thr1": 95.0, // Full‐motif threshold percentile
-    "thr2": 75.0, // Core‐region threshold percentile
+    "thr1": 95.0, // Full-motif threshold percentile
+    "thr2": 75.0, // Core-region threshold percentile
     "simulation_iterations": 10000 // Monte Carlo iterations
   },
   "settings": {
-    "core_length": 5, // Core window length for pre‐filtering
+    "core_length": 5, // Core window length for pre-filtering
     "precision": 6 // Decimal places in output
   }
 }
 ```
 
-- **paths.original_pwm_file**: Input MEME motif file or
-- **paths.sequence_file**: Target sequences in FASTA format
-- **paths.results_file**: Final hit list (TSV)
-- **parameters.pwm2fm**: Pseudocount factor (or normalization constant)
-- **parameters.bayes**: `true` to apply Bayesian smoothing, else simple normalization
-- **parameters.thr1 / thr2**: Percentiles (0–100) for full and core scores
-- **parameters.simulation_iterations**: More iterations → more stable thresholds, but slower
-- **settings.core_length**: Short core region used to speed scanning
-- **settings.precision**: Number of decimal places in PWM/threshold output
+- **paths.original_pwm_file**: Input MEME motif file
+- **paths.sequence_file**: FASTA file or directory of FASTA files for batch mode
+- **paths.results_file**: Output TSV file (single) or directory (batch mode)
 
 ---
 
@@ -69,8 +62,8 @@ Edit `config.json` to suit your data and parameters:
 
 Make the scripts executable and compile:
 
-```fish
-chmod +x compile.sh run.sh goat.sh
+```bash
+chmod +x compile.sh run.sh
 ./compile.sh
 ```
 
@@ -84,85 +77,37 @@ Binaries produced:
 
 ## Run
 
-GOAT supports two execution modes:
+After building, configure `config.json` and execute:
 
-### Mode 1: Command-Line Interface
-
-Make the wrapper script executable:
-Run with required options:
-
-```fish
-./goat -pwm path/to/input.meme \
-       -seq path/to/seq.fasta \
-       -out results.txt
-```
-
-Override defaults with optional flags:
-
-```fish
-./goat -pwm motif.meme -seq seq.fasta -out results.txt \
-       -thr1 95.0 -thr2 75.0 -sim 10000 -core 5 -bayes true -pwm2fm 45
-```
-
-Options:
-
-- `-pwm` : input PWM/MEME file (required)
-- `-seq` : input FASTA sequence file (required)
-- `-out` : output results TSV file (required)
-- `-thr1` : full-motif threshold percentile (default: 95.0)
-- `-thr2` : core-region threshold percentile (default: 75.0)
-- `-sim` : Monte Carlo iterations (default: 10000)
-- `-core` : core length for pre-filtering (default: 5)
-- `-bayes` : enable Bayesian smoothing (default: true)
-- `-pwm2fm`: pseudocount multiplier (default: 45)
-
-### Mode 2: Configuration File Mode
-
-Make the orchestrator script executable and run:
-
-```fish
+```bash
 chmod +x run.sh
 ./run.sh
 ```
 
-This will:
+`run.sh` auto-detects single-file vs. directory input:
 
-1. Convert MEME → PWM:
-   ```
-   ./meme2pwm <original_pwm> <TMP/pwm.txt> <bayes_flag> <pwm2fm>
-   ```
-2. Compute thresholds:
-   ```
-   ./get_thr <TMP/pwm.txt> <TMP/thr.txt> <thr1> <thr2> <iterations> <core_length> <precision>
-   ```
-3. Search motifs in parallel:
-   ```
-   ./search_motif <fasta> <TMP/pwm.txt> <TMP/thr.txt> <results_file> <core_length>
-   ```
+- **Single-file mode**: `sequence_file` → one output file `results_file`
+- **Batch mode**: `sequence_file` is a directory → `results_file` treated as output directory; generates one `<stem>_results.txt` per FASTA
 
-Intermediate files live in a temporary directory and are cleaned up automatically. The final TSV is saved to `results_file`.
-
-<!-- Batch processing note -->
-
-This dual-mode interface allows quick, ad-hoc searches using the command-line flags, and scalable batch processing by editing `config.json` and running `run.sh`.
+Intermediate files are stored in a temporary directory and cleaned up automatically.
 
 ---
 
 ## Interpreting Results
 
-The output TSV (`results.txt` by default) has one hit per line, with columns:
+The output TSV (default `results.txt`) has columns:
 
-| Column         | Description                                 |
-| -------------- | ------------------------------------------- |
-| **Sequence**   | FASTA header (e.g. `>chr1:100-500`)         |
-| **MotifID**    | Motif identifier from the PWM file          |
-| **Position**   | 0‐based start index in the strand           |
-| **Strand**     | `positive` or `negative`                    |
-| **Score**      | Log‐likelihood score (lower = better match) |
-| **MatchedSeq** | The matched DNA substring                   |
+| Column     | Description                                 |
+| ---------- | ------------------------------------------- |
+| Sequence   | FASTA header (e.g. `>chr1:100-500`)         |
+| MotifID    | Motif identifier                            |
+| Position   | 0-based start index in the strand           |
+| Strand     | `positive` or `negative`                    |
+| Score      | Log-likelihood score (lower = better match) |
+| MatchedSeq | The matched DNA substring                   |
 
 ---
 
 ## License & Citation
 
-Please cite this tool as “”
+Please cite this tool as “Goodness Of Alignment Test (GOAT), [Your Publication], 2025.”

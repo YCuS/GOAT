@@ -12,6 +12,7 @@
 #include <atomic>
 #include <mutex>
 #include <chrono>
+#include <filesystem> 
 
 // Position Weight Matrix with cache-optimized storage
 struct PositionWeightMatrix {
@@ -358,59 +359,127 @@ void process_sequences_in_parallel(
     }
 }
 
+
+static std::vector<std::string> get_sequence_files_from_directory(const std::string& dir_path) {
+    if (!std::filesystem::exists(dir_path) || !std::filesystem::is_directory(dir_path)) {
+        throw std::runtime_error("Sequence directory does not exist or is not a directory: " + dir_path);
+    }
+    std::vector<std::string> files;
+    for (auto& entry : std::filesystem::directory_iterator(dir_path)) {
+        if (!entry.is_regular_file()) continue;
+        auto ext = entry.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        if (ext == ".fa" || ext == ".fasta" || ext == ".fna") {
+            files.push_back(entry.path().string());
+        }
+    }
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
+static std::string generate_output_filename(const std::string& input_file, const std::string& output_dir) {
+    std::filesystem::path in(input_file);
+    auto stem = in.stem().string();
+    std::filesystem::path out_dir(output_dir);
+    // output file format: <stem>_results.txt
+    return (out_dir / (stem + "_results.txt")).string();
+}
+
 int main(int argc, char* argv[]) {
-    if (argc != 6) {
-        std::cerr << "Usage: " << argv[0]
+    // support single-file mode and batch mode
+    if (argc != 6 && argc != 7) {
+        std::cerr << "Usage (single file mode):\n  " << argv[0]
                   << " <input_sequences.fasta> <input_pwms.txt> <input_thresholds.txt> "
                   << "<output_results.txt> <core_region_length>\n";
+        std::cerr << "Usage (batch mode):\n  " << argv[0]
+                  << " <input_seq_directory> <input_pwms.txt> <input_thresholds.txt> "
+                  << "<output_results_directory> <core_region_length> --batch\n";
         return 1;
     }
-    
+
     try {
-        std::string input_sequence_file = argv[1];
-        std::string input_pwm_file = argv[2];
-        std::string input_threshold_file = argv[3];
-        std::string output_results_file = argv[4];
-        int core_region_length = std::stoi(argv[5]);
-        
-        std::cerr << "Loading input data..." << std::endl;
-        
-        // Load all required data
-        auto sequence_collection = load_dna_sequences_from_fasta(input_sequence_file);
-        auto pwm_collection = load_position_weight_matrices(input_pwm_file);
-        auto threshold_map = load_detection_thresholds(input_threshold_file);
-        
-        // Validate input data
-        if (sequence_collection.empty() || pwm_collection.empty() || threshold_map.empty()) {
-            std::cerr << "ERROR: One or more input files contain no data" << std::endl;
-            return 1;
+        std::string seq_path       = argv[1];
+        std::string pwm_file       = argv[2];
+        std::string thr_file       = argv[3];
+        std::string out_path       = argv[4];
+        int core_region_length     = std::stoi(argv[5]);
+        bool batch_mode = (argc == 7 && std::string(argv[6]) == "--batch")
+                       || std::filesystem::is_directory(seq_path);
+
+        // Preload PWM definitions and thresholds; no need to reload for each file in batch mode
+        auto pwm_collection = load_position_weight_matrices(pwm_file);
+        auto threshold_map  = load_detection_thresholds(thr_file);
+        if (pwm_collection.empty() || threshold_map.empty()) {
+            throw std::runtime_error("Failed to load PWM definitions or thresholds; they may be empty");
         }
-        
-        std::cerr << "Starting parallel motif search..." << std::endl;
-        
-        // Execute parallel search
-        SearchResultCollector result_collector;
-        auto search_start_time = std::chrono::high_resolution_clock::now();
-        
-        process_sequences_in_parallel(sequence_collection, pwm_collection, threshold_map, 
-                                     core_region_length, result_collector);
-        
-        auto search_end_time = std::chrono::high_resolution_clock::now();
-        auto total_search_time = std::chrono::duration_cast<std::chrono::milliseconds>(
-            search_end_time - search_start_time);
-        
-        // Save results to file
-        result_collector.write_results_to_file(output_results_file);
-        
-        std::cerr << "Motif search completed successfully!" << std::endl;
-        std::cerr << "Execution time: " << total_search_time.count() << " ms" << std::endl;
-        std::cerr << "Total matches found: " << result_collector.get_result_count() << std::endl;
-        std::cerr << "Results saved to: " << output_results_file << std::endl;
-        
-    } catch (const std::exception& error) {
-        std::cerr << "ERROR: " << error.what() << std::endl;
+
+        if (batch_mode) {
+            // Batch mode: seq_path is a directory, out_path is created if it does not exist
+            if (!std::filesystem::exists(out_path)) {
+                std::filesystem::create_directories(out_path);
+            }
+
+            auto seq_files = get_sequence_files_from_directory(seq_path);
+            if (seq_files.empty()) {
+                std::cerr << "No FASTA files found in directory: " << seq_path << "\n";
+                return 1;
+            }
+            std::cerr << "Batch mode: found " << seq_files.size() << " FASTA files\n";
+
+            int idx = 0;
+            for (const auto& seq_file : seq_files) {
+                ++idx;
+                std::string result_file = generate_output_filename(seq_file, out_path);
+                std::cerr << "Processing [" << idx << "/" << seq_files.size() << "]: "
+                          << std::filesystem::path(seq_file).filename().string()
+                          << " -> " << std::filesystem::path(result_file).filename().string()
+                          << "\n";
+
+                // Load sequences from the current FASTA file
+                auto sequences = load_dna_sequences_from_fasta(seq_file);
+                if (sequences.empty()) {
+                    std::cerr << "  ⚠️  No sequences found in " << seq_file << ", skipping\n";
+                    continue;
+                }
+
+                // Perform parallel motif search
+                SearchResultCollector collector;
+                auto t0 = std::chrono::high_resolution_clock::now();
+                process_sequences_in_parallel(sequences, pwm_collection, threshold_map,
+                                             core_region_length, collector);
+                auto t1 = std::chrono::high_resolution_clock::now();
+
+                // Write results to file
+                collector.write_results_to_file(result_file);
+                auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+                std::cerr << "  ✓ Done, matched " << collector.get_result_count()
+                          << " entries, took " << ms << " ms\n";
+            }
+
+        } else {
+            auto sequences = load_dna_sequences_from_fasta(seq_path);
+            if (sequences.empty()) {
+                throw std::runtime_error("Can't find sequences in " + seq_path);
+            }
+            std::cerr << "Loaded " << sequences.size() << " sequences\n";
+
+            SearchResultCollector collector;
+            auto t0 = std::chrono::high_resolution_clock::now();
+            process_sequences_in_parallel(sequences, pwm_collection, threshold_map,
+                                         core_region_length, collector);
+            auto t1 = std::chrono::high_resolution_clock::now();
+
+            collector.write_results_to_file(out_path);
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+            std::cerr << "Motif search completed successfully!\n";
+            std::cerr << "Execution time: " << ms << " ms\n";
+            std::cerr << "Total matches found: " << collector.get_result_count() << "\n";
+            std::cerr << "Results saved to: " << out_path << "\n";
+        }
+
+    } catch (const std::exception& e) {
+        std::cerr << "ERROR: " << e.what() << "\n";
         return 1;
     }
-    
     return 0;
 }
