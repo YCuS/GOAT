@@ -1,18 +1,31 @@
 {
   "parameters": {
     "pwm2fm": 45,
-    "bayes": true,
+    "bayes": false,
     "thr1": 95.0,
     "thr2": 75.0,
-    "simulation_iterations": 10000
+    "simulation_iterations": 10000,
+    "relaxed_full": 99.9,
+    "relaxed_core": 98.0,
+    "strict_full": 75.0,
+    "strict_core": 60.0
   },
   "paths": {
-    "original_pwm_file": "/mnt/liuyitong/workspace/methods/GOAT/streme.txt",
-    "sequence_file": "/mnt/liuyitong/workspace/data/esb/species/Saccharomyces/Saccharomyces_cerevisiae/Saccharomyces_cerevisiae_R64-3-1.fasta",
-    "results_file": "results.txt"
+    "original_pwm_file": "/mnt/liuyitong/workspace/methods/GOAT/pwm.txt",
+    "sequence_file": "/mnt/liuyitong/workspace/methods/GOAT/motif/seq/seq2.fa",
+    "results_file": "results_5.txt",
+    "threshold_file": "thr.txt"
   },
   "settings": {
+    "save_threshold": false,
     "core_length": 5,
-    "precision": 6
+    "precision": 6,
+    "allow_gaps": false,
+    "gc_threshold": 0.45
+  },
+  "clustering": {
+    "enable": 1,
+    "k": 5,
+    "relaxed_cluster": 3
   }
 }
