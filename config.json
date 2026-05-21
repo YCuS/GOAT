@@ -1,0 +1,20 @@
+{
+  "parameters": {
+    "pwm2fm": 45,
+    "bayes": false,
+    "thr1": 95.0,
+    "thr2": 75.0,
+    "simulation_iterations": 10000
+  },
+  "paths": {
+    "original_pwm_file": "examples/motifs.txt",
+    "sequence_file": "examples/sequences.fa",
+    "results_file": "results/motif_hits.tsv",
+    "threshold_file": "results/thresholds.tsv"
+  },
+  "settings": {
+    "save_threshold": true,
+    "core_length": 5,
+    "precision": 6
+  }
+}

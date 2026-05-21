@@ -1,0 +1,7 @@
+.DS_Store
+*.o
+meme2pwm
+get_thr
+search_motif
+rna2dna
+results/
