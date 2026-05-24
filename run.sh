@@ -18,12 +18,15 @@ Options:
   --core-pct PCT         core threshold percentile (default: 75.0)
   --iterations N         simulations per motif (default: 10000)
   --precision N          threshold decimal precision (default: 6)
-  --bayes 0|1            enable Bayesian smoothing in meme2pwm (default: 0)
+  --bayes 0|1            Bayesianize/smooth PWM probabilities in meme2pwm (default: 0)
   --pseudocount N        pseudocount value passed to meme2pwm (default: 45)
   -h, --help             show this help
 
-Example:
+Single-file example:
   bash run.sh examples/motifs.txt examples/sequences.fa results/motif_hits.tsv
+
+Batch example:
+  bash run.sh examples/motifs.txt path/to/fasta_dir results/batch_hits
 USAGE
 }
 
