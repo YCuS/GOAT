@@ -6,14 +6,13 @@ GOAT is a Linux-oriented PWM motif search pipeline for DNA FASTA files. It conve
 
 - Linux
 - Bash
-- `jq`
 - C++17 compiler, such as `g++`
 
 On Ubuntu/Debian:
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential jq
+sudo apt install -y build-essential
 ```
 
 ## Build
@@ -30,11 +29,9 @@ This creates:
 
 ## Quick Start
 
-The default `config.json` uses the example files in `examples/`.
-
 ```bash
 bash compile.sh
-bash run.sh
+bash run.sh examples/motifs.txt examples/sequences.fa results/motif_hits.tsv
 ```
 
 Outputs:
@@ -42,43 +39,47 @@ Outputs:
 - `results/thresholds.tsv`
 - `results/motif_hits.tsv`
 
-## Configuration
+## Run
 
-Edit `config.json` for your data:
-
-```json
-{
-  "parameters": {
-    "pwm2fm": 45,
-    "bayes": false,
-    "thr1": 95.0,
-    "thr2": 75.0,
-    "simulation_iterations": 10000
-  },
-  "paths": {
-    "original_pwm_file": "examples/motifs.txt",
-    "sequence_file": "examples/sequences.fa",
-    "results_file": "results/motif_hits.tsv",
-    "threshold_file": "results/thresholds.tsv"
-  },
-  "settings": {
-    "save_threshold": true,
-    "core_length": 5,
-    "precision": 6
-  }
-}
+```bash
+bash run.sh <motif_file> <sequence_file_or_dir> <results_file_or_dir> [options]
 ```
 
-Key fields:
+Required arguments:
 
-- `paths.original_pwm_file`: motif input file, either MEME format or simple `Motif:` format.
-- `paths.sequence_file`: FASTA file, or a directory of `.fa`, `.fasta`, or `.fna` files.
-- `paths.results_file`: output TSV file, or output directory in batch mode.
-- `paths.threshold_file`: threshold output TSV.
-- `parameters.thr1`: full motif threshold percentile.
-- `parameters.thr2`: core region threshold percentile.
-- `parameters.simulation_iterations`: simulation count per motif.
-- `settings.core_length`: length of the selected core window.
+- `motif_file`: MEME file or simple `Motif:` file.
+- `sequence_file_or_dir`: FASTA file, or directory of `.fa`, `.fasta`, or `.fna` files.
+- `results_file_or_dir`: output TSV file; output directory when sequence input is a directory.
+
+Options:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--threshold-file PATH` | next to results | Threshold output TSV. |
+| `--core-length N` | `5` | Length of the selected core window. |
+| `--full-pct PCT` | `95.0` | Full motif threshold percentile. |
+| `--core-pct PCT` | `75.0` | Core region threshold percentile. |
+| `--iterations N` | `10000` | Simulation count per motif. |
+| `--precision N` | `6` | Threshold decimal precision. |
+| `--bayes 0|1` | `0` | Enable Bayesian smoothing in `meme2pwm`. |
+| `--pseudocount N` | `45` | Pseudocount value passed to `meme2pwm`. |
+
+Example with options:
+
+```bash
+bash run.sh motifs.txt seq.fa results/hits.tsv \
+  --threshold-file results/thresholds.tsv \
+  --core-length 6 \
+  --full-pct 95 \
+  --core-pct 75 \
+  --iterations 20000
+```
+
+Batch mode is automatic when the sequence input is a directory:
+
+```bash
+bash run.sh motifs.txt fasta_dir results/batch_hits
+```
 
 ## Motif Input
 
@@ -122,10 +123,4 @@ Coordinates are 1-based and inclusive on the input FASTA sequence.
 ./meme2pwm examples/motifs.txt /tmp/pwm.tsv 0 45
 ./get_thr /tmp/pwm.tsv results/thresholds.tsv 95.0 75.0 10000 5 6
 ./search_motif examples/sequences.fa /tmp/pwm.tsv results/thresholds.tsv results/motif_hits.tsv 5
-```
-
-Batch mode:
-
-```bash
-./search_motif path/to/fasta_dir /tmp/pwm.tsv results/thresholds.tsv results/batch_hits 5 --batch
 ```
