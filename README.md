@@ -1,6 +1,6 @@
 # GOAT
 
-GOAT is a Linux-oriented PWM motif search pipeline for DNA FASTA files. It converts motif files to normalized PWMs, estimates fixed score thresholds, and searches sequences with a core-first scan.
+GOAT is a Linux-oriented PWM-based motif search pipeline for DNA FASTA files. It converts motif files into normalized PWMs, estimates fixed score thresholds, and scans sequences using a core-first strategy.
 
 ## Requirements
 
@@ -124,7 +124,7 @@ Each row is ordered as `A C G T`. Rows are normalized automatically. MEME files 
 
 For each motif, `get_thr` selects the lowest-entropy contiguous core window. During search, `search_motif` first scores the core region at each candidate position. Only windows that pass the core threshold are scored against the full motif. Sequence scanning is parallelized across available CPU threads.
 
-Scores are negative log-likelihoods, so lower values indicate better matches.
+Because scores are defined as negative log-likelihoods, lower values indicate better motif matches.
 
 ## Output
 
