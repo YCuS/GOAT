@@ -1,80 +1,231 @@
 # GOAT
 
-GOAT 是一个基于 PWM 的 motif 搜索小工具链。本版本回到简洁的原始流程：
+GOAT is a lightweight PWM-only motif search pipeline for DNA FASTA files. It keeps the workflow intentionally direct:
 
-1. 将 MEME 或简单 motif 格式转换为标准 PWM；
-2. 仅根据 PWM 模拟得到固定阈值；
-3. 用固定阈值在 FASTA 序列中滑窗搜索 motif。
+1. Convert motifs into normalized position weight matrices.
+2. Simulate fixed score thresholds from each PWM.
+3. Search sequences with a core-first filter, then score the full motif only for windows that pass the core threshold.
 
-本版本不再使用 GC 含量、motif clustering、relaxed/strict cluster 规则或 gap 对齐。
+This repository does not use GC-content adjustment, motif clustering, relaxed/strict cluster rules, or gap alignment.
 
-## 环境要求
+## Features
 
-- 支持 C++17 的编译器，例如 `g++` 或 `clang++`
-- `jq`，用于读取 `config.json`
+- Supports MEME motif files and a simple `Motif:` PWM-like input format.
+- Normalizes motif rows automatically as `A C G T`.
+- Selects the motif core as the lowest-entropy contiguous window.
+- Uses Monte Carlo simulation to calculate fixed thresholds per motif.
+- Searches both `+` and `-` strands.
+- Applies a fast core gate before full motif scoring.
+- Uses multi-threaded sequence scanning for faster motif search.
+- Writes tab-separated outputs with stable headers.
+- Supports single FASTA input or batch mode over a directory of FASTA files.
+
+## Requirements
+
 - Bash
+- `jq`
+- A C++17 compiler, such as `g++` or `clang++`
 
-## 编译
+On macOS with Homebrew:
+
+```bash
+brew install jq
+```
+
+## Build
 
 ```bash
 bash compile.sh
 ```
 
-会生成三个可执行文件：
+This creates:
 
-- `meme2pwm`：将 MEME 格式或简单 `Motif:` 格式转换为归一化 PWM；
-- `get_thr`：根据 PWM 模拟计算 full motif 和 core region 的固定阈值；
-- `search_motif`：在 FASTA 序列中搜索 motif，并输出清晰的 TSV 结果。
+- `meme2pwm`: converts MEME or simple motif input into normalized PWM format
+- `get_thr`: simulates fixed full-motif and core-region thresholds
+- `search_motif`: scans FASTA sequences and writes motif hits
 
-## 运行
+## Quick Start
 
-先根据自己的数据修改 `config.json`，然后运行：
+The default `config.json` uses the files under `examples/`.
 
 ```bash
+bash compile.sh
 bash run.sh
 ```
 
-默认配置使用 `examples/` 目录中的示例文件，因此编译后可以直接测试。
+Expected outputs:
 
-## 配置说明
+- `results/thresholds.tsv`
+- `results/motif_hits.tsv`
 
-`config.json` 中常用字段如下：
+## Configuration
 
-- `paths.original_pwm_file`：输入 motif 文件，可为 MEME 格式或简单 `Motif:` 格式；
-- `paths.sequence_file`：输入 FASTA 文件，或包含 `.fa`、`.fasta`、`.fna` 的目录；
-- `paths.results_file`：结果 TSV 文件；批量模式下也可作为输出目录；
-- `paths.threshold_file`：保存阈值的 TSV 文件；
-- `parameters.thr1`：full motif 阈值百分位，默认 `95.0`；
-- `parameters.thr2`：core region 阈值百分位，默认 `75.0`；
-- `parameters.simulation_iterations`：每个 motif 的模拟次数；
-- `settings.core_length`：core window 长度，程序会选择信息量最高的一段 core。
+Edit `config.json` before running on your own data:
 
-## Motif 输入格式
+```json
+{
+  "parameters": {
+    "pwm2fm": 45,
+    "bayes": false,
+    "thr1": 95.0,
+    "thr2": 75.0,
+    "simulation_iterations": 10000
+  },
+  "paths": {
+    "original_pwm_file": "examples/motifs.txt",
+    "sequence_file": "examples/sequences.fa",
+    "results_file": "results/motif_hits.tsv",
+    "threshold_file": "results/thresholds.tsv"
+  },
+  "settings": {
+    "save_threshold": true,
+    "core_length": 5,
+    "precision": 6
+  }
+}
+```
 
-简单格式如下，每一行依次表示 `A C G T`：
+### Parameters
+
+| Field | Meaning |
+| --- | --- |
+| `parameters.pwm2fm` | Pseudocount-related value passed to `meme2pwm` when Bayesian smoothing is enabled. |
+| `parameters.bayes` | Whether to apply Bayesian smoothing during PWM normalization. |
+| `parameters.thr1` | Full-motif score percentile used as the full threshold. |
+| `parameters.thr2` | Core-region score percentile used as the core threshold. |
+| `parameters.simulation_iterations` | Number of simulated motif sequences per motif. |
+| `settings.core_length` | Length of the contiguous core window. |
+| `settings.precision` | Decimal precision for threshold output. |
+
+### Paths
+
+| Field | Meaning |
+| --- | --- |
+| `paths.original_pwm_file` | Motif input in MEME format or simple `Motif:` format. |
+| `paths.sequence_file` | FASTA file, or a directory containing `.fa`, `.fasta`, or `.fna` files. |
+| `paths.results_file` | Output TSV file for single input; output directory in batch mode. |
+| `paths.threshold_file` | Output threshold TSV file. |
+
+## Motif Input
+
+### Simple Format
+
+Each motif starts with `Motif:<id>`. Every following row is one PWM position in `A C G T` order.
 
 ```text
-Motif:motif_name
-0.25 0.25 0.25 0.25
+Motif:example_motif
 0.90 0.03 0.04 0.03
+0.03 0.90 0.04 0.03
+0.03 0.04 0.90 0.03
+0.03 0.04 0.03 0.90
 ```
 
-每一行会自动归一化。
+Rows are normalized automatically, so counts or probabilities are both acceptable as long as the columns are ordered as `A C G T`.
 
-## 输出格式
+### MEME Format
 
-阈值文件列：
+Files containing `letter-probability matrix:` are detected as MEME format and parsed by `meme2pwm`.
+
+## Algorithm
+
+### 1. PWM Normalization
+
+`meme2pwm` reads motifs and writes a normalized internal PWM file:
 
 ```text
-motif_id  full_threshold  core_threshold  core_start  motif_length
+Motif:<motif_id>
+A_probability  C_probability  G_probability  T_probability
+...
 ```
 
-搜索结果列：
+### 2. Core Selection
+
+For each motif, `get_thr` selects a contiguous core window of length `settings.core_length`.
+
+The chosen core is the window with the smallest entropy sum across its columns. In practice, this favors the most informative and least ambiguous region of the PWM.
+
+### 3. Threshold Simulation
+
+For each motif:
+
+- Simulated sequences are sampled from the motif PWM.
+- Each simulated sequence is scored against the full PWM.
+- The selected core region is scored separately.
+- `thr1` and `thr2` percentiles become fixed full and core thresholds.
+
+Scores are negative log-likelihoods. Lower values indicate better matches.
+
+### 4. Core-First Motif Search
+
+`search_motif` scans each candidate window in this order:
+
+1. Score only the core region at the expected core offset.
+2. Reject the window immediately if the core score is above the core threshold.
+3. Score the full motif only after the core passes.
+4. Report the hit only if the full score also passes the full threshold.
+
+This keeps the original PWM-only logic while avoiding unnecessary full-motif scoring for weak windows.
+
+### 5. Parallel Search
+
+Sequence scanning is parallelized across available CPU threads. Each worker scans a chunk of sequences independently, then the results are merged and sorted for stable output.
+
+## Output
+
+### Thresholds
+
+`thresholds.tsv`:
 
 ```text
-sequence_id  motif_id  strand  start  end  full_score  core_score  matched_sequence
+# motif_id	full_threshold	core_threshold	core_start	motif_length
 ```
 
-坐标为输入 FASTA 上的 1-based 闭区间。`-` 链命中的 `matched_sequence` 按 motif 方向输出。
+| Column | Meaning |
+| --- | --- |
+| `motif_id` | Motif identifier. |
+| `full_threshold` | Maximum accepted full-motif negative log-likelihood score. |
+| `core_threshold` | Maximum accepted core-region negative log-likelihood score. |
+| `core_start` | 0-based core start position inside the motif. |
+| `motif_length` | Motif length in bases. |
 
-分数是 PWM 的负对数似然，越小表示匹配越好。只有 full motif 分数和 core region 分数都通过阈值时，才会输出为命中结果。
+### Motif Hits
+
+`motif_hits.tsv`:
+
+```text
+sequence_id	motif_id	strand	start	end	full_score	core_score	matched_sequence
+```
+
+| Column | Meaning |
+| --- | --- |
+| `sequence_id` | FASTA record identifier. |
+| `motif_id` | Matched motif identifier. |
+| `strand` | `+` or `-`. |
+| `start` | 1-based inclusive start coordinate on the input sequence. |
+| `end` | 1-based inclusive end coordinate on the input sequence. |
+| `full_score` | Full-motif negative log-likelihood score. |
+| `core_score` | Core-region negative log-likelihood score. |
+| `matched_sequence` | Matched sequence in motif orientation. |
+
+## Manual Commands
+
+The pipeline can also be run step by step:
+
+```bash
+./meme2pwm examples/motifs.txt /tmp/pwm.tsv 0 45
+./get_thr /tmp/pwm.tsv results/thresholds.tsv 95.0 75.0 10000 5 6
+./search_motif examples/sequences.fa /tmp/pwm.tsv results/thresholds.tsv results/motif_hits.tsv 5
+```
+
+For batch input:
+
+```bash
+./search_motif path/to/fasta_dir /tmp/pwm.tsv results/thresholds.tsv results/batch_hits 5 --batch
+```
+
+## Notes
+
+- Coordinates are reported on the original FASTA sequence.
+- `matched_sequence` for `-` strand hits is shown in motif orientation.
+- The current implementation is intentionally PWM-only and fixed-threshold based.
+- Generated binaries and `results/` are ignored by git.

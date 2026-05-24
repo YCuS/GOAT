@@ -5,11 +5,13 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iomanip>
 #include <iostream>
 #include <map>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -199,6 +201,7 @@ static void scan_strand(const Sequence &sequence,
     if (motif_len > seq_len) return;
 
     for (int pos = 0; pos + motif_len <= seq_len; ++pos) {
+        // Core gate first: only promising windows pay the full PWM score cost.
         const double core_score =
             score_window(strand_sequence, pos + threshold.core_start, pwm, threshold.core_start, core_len);
         if (core_score > threshold.core) continue;
@@ -225,20 +228,64 @@ static void scan_strand(const Sequence &sequence,
     }
 }
 
+static std::vector<Hit> search_one_sequence(const Sequence &sequence,
+                                            const std::vector<Pwm> &motifs,
+                                            const std::map<std::string, Threshold> &thresholds,
+                                            int core_len) {
+    std::vector<Hit> hits;
+    const std::string rc = reverse_complement(sequence.bases);
+
+    for (const auto &pwm : motifs) {
+        const auto threshold_it = thresholds.find(pwm.id);
+        if (threshold_it == thresholds.end()) continue;
+
+        scan_strand(sequence, sequence.bases, '+', pwm, threshold_it->second, core_len, hits);
+        scan_strand(sequence, rc, '-', pwm, threshold_it->second, core_len, hits);
+    }
+    return hits;
+}
+
 static std::vector<Hit> search_sequences(const std::vector<Sequence> &sequences,
                                          const std::vector<Pwm> &motifs,
                                          const std::map<std::string, Threshold> &thresholds,
                                          int core_len) {
     std::vector<Hit> hits;
-    for (const auto &sequence : sequences) {
-        const std::string rc = reverse_complement(sequence.bases);
-        for (const auto &pwm : motifs) {
-            const auto threshold_it = thresholds.find(pwm.id);
-            if (threshold_it == thresholds.end()) continue;
+    if (sequences.empty() || motifs.empty()) return hits;
 
-            scan_strand(sequence, sequence.bases, '+', pwm, threshold_it->second, core_len, hits);
-            scan_strand(sequence, rc, '-', pwm, threshold_it->second, core_len, hits);
-        }
+    const unsigned int hw_threads = std::thread::hardware_concurrency();
+    const size_t worker_count =
+        std::min<size_t>(sequences.size(), hw_threads == 0 ? 4 : hw_threads);
+    const size_t chunk_size = (sequences.size() + worker_count - 1) / worker_count;
+
+    std::vector<std::future<std::vector<Hit>>> futures;
+    futures.reserve(worker_count);
+
+    for (size_t worker = 0; worker < worker_count; ++worker) {
+        const size_t begin = worker * chunk_size;
+        const size_t end = std::min(begin + chunk_size, sequences.size());
+        if (begin >= end) continue;
+
+        futures.push_back(std::async(std::launch::async, [&, begin, end]() {
+            std::vector<Hit> local_hits;
+            for (size_t i = begin; i < end; ++i) {
+                auto sequence_hits = search_one_sequence(sequences[i], motifs, thresholds, core_len);
+                local_hits.insert(local_hits.end(),
+                                  std::make_move_iterator(sequence_hits.begin()),
+                                  std::make_move_iterator(sequence_hits.end()));
+            }
+            return local_hits;
+        }));
+    }
+
+    for (auto &future : futures) {
+        auto local_hits = future.get();
+        hits.insert(hits.end(),
+                    std::make_move_iterator(local_hits.begin()),
+                    std::make_move_iterator(local_hits.end()));
+    }
+
+    if (worker_count > 1) {
+        std::cerr << "Parallel search threads: " << worker_count << '\n';
     }
 
     std::sort(hits.begin(), hits.end(), [](const Hit &a, const Hit &b) {
