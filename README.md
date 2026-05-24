@@ -1,35 +1,19 @@
 # GOAT
 
-GOAT is a lightweight PWM-only motif search pipeline for DNA FASTA files. It keeps the workflow intentionally direct:
-
-1. Convert motifs into normalized position weight matrices.
-2. Simulate fixed score thresholds from each PWM.
-3. Search sequences with a core-first filter, then score the full motif only for windows that pass the core threshold.
-
-This repository does not use GC-content adjustment, motif clustering, relaxed/strict cluster rules, or gap alignment.
-
-## Features
-
-- Supports MEME motif files and a simple `Motif:` PWM-like input format.
-- Normalizes motif rows automatically as `A C G T`.
-- Selects the motif core as the lowest-entropy contiguous window.
-- Uses Monte Carlo simulation to calculate fixed thresholds per motif.
-- Searches both `+` and `-` strands.
-- Applies a fast core gate before full motif scoring.
-- Uses multi-threaded sequence scanning for faster motif search.
-- Writes tab-separated outputs with stable headers.
-- Supports single FASTA input or batch mode over a directory of FASTA files.
+GOAT is a Linux-oriented PWM motif search pipeline for DNA FASTA files. It converts motif files to normalized PWMs, estimates fixed score thresholds, and searches sequences with a core-first scan.
 
 ## Requirements
 
+- Linux
 - Bash
 - `jq`
-- A C++17 compiler, such as `g++` or `clang++`
+- C++17 compiler, such as `g++`
 
-On macOS with Homebrew:
+On Ubuntu/Debian:
 
 ```bash
-brew install jq
+sudo apt update
+sudo apt install -y build-essential jq
 ```
 
 ## Build
@@ -40,27 +24,27 @@ bash compile.sh
 
 This creates:
 
-- `meme2pwm`: converts MEME or simple motif input into normalized PWM format
-- `get_thr`: simulates fixed full-motif and core-region thresholds
-- `search_motif`: scans FASTA sequences and writes motif hits
+- `meme2pwm`
+- `get_thr`
+- `search_motif`
 
 ## Quick Start
 
-The default `config.json` uses the files under `examples/`.
+The default `config.json` uses the example files in `examples/`.
 
 ```bash
 bash compile.sh
 bash run.sh
 ```
 
-Expected outputs:
+Outputs:
 
 - `results/thresholds.tsv`
 - `results/motif_hits.tsv`
 
 ## Configuration
 
-Edit `config.json` before running on your own data:
+Edit `config.json` for your data:
 
 ```json
 {
@@ -85,32 +69,20 @@ Edit `config.json` before running on your own data:
 }
 ```
 
-### Parameters
+Key fields:
 
-| Field | Meaning |
-| --- | --- |
-| `parameters.pwm2fm` | Pseudocount-related value passed to `meme2pwm` when Bayesian smoothing is enabled. |
-| `parameters.bayes` | Whether to apply Bayesian smoothing during PWM normalization. |
-| `parameters.thr1` | Full-motif score percentile used as the full threshold. |
-| `parameters.thr2` | Core-region score percentile used as the core threshold. |
-| `parameters.simulation_iterations` | Number of simulated motif sequences per motif. |
-| `settings.core_length` | Length of the contiguous core window. |
-| `settings.precision` | Decimal precision for threshold output. |
-
-### Paths
-
-| Field | Meaning |
-| --- | --- |
-| `paths.original_pwm_file` | Motif input in MEME format or simple `Motif:` format. |
-| `paths.sequence_file` | FASTA file, or a directory containing `.fa`, `.fasta`, or `.fna` files. |
-| `paths.results_file` | Output TSV file for single input; output directory in batch mode. |
-| `paths.threshold_file` | Output threshold TSV file. |
+- `paths.original_pwm_file`: motif input file, either MEME format or simple `Motif:` format.
+- `paths.sequence_file`: FASTA file, or a directory of `.fa`, `.fasta`, or `.fna` files.
+- `paths.results_file`: output TSV file, or output directory in batch mode.
+- `paths.threshold_file`: threshold output TSV.
+- `parameters.thr1`: full motif threshold percentile.
+- `parameters.thr2`: core region threshold percentile.
+- `parameters.simulation_iterations`: simulation count per motif.
+- `settings.core_length`: length of the selected core window.
 
 ## Motif Input
 
-### Simple Format
-
-Each motif starts with `Motif:<id>`. Every following row is one PWM position in `A C G T` order.
+Simple motif format:
 
 ```text
 Motif:example_motif
@@ -120,96 +92,31 @@ Motif:example_motif
 0.03 0.04 0.03 0.90
 ```
 
-Rows are normalized automatically, so counts or probabilities are both acceptable as long as the columns are ordered as `A C G T`.
+Each row is ordered as `A C G T`. Rows are normalized automatically. MEME files are also supported when they contain `letter-probability matrix:`.
 
-### MEME Format
+## Search Method
 
-Files containing `letter-probability matrix:` are detected as MEME format and parsed by `meme2pwm`.
+For each motif, `get_thr` selects the lowest-entropy contiguous core window. During search, `search_motif` first scores the core region at each candidate position. Only windows that pass the core threshold are scored against the full motif. Sequence scanning is parallelized across available CPU threads.
 
-## Algorithm
-
-### 1. PWM Normalization
-
-`meme2pwm` reads motifs and writes a normalized internal PWM file:
-
-```text
-Motif:<motif_id>
-A_probability  C_probability  G_probability  T_probability
-...
-```
-
-### 2. Core Selection
-
-For each motif, `get_thr` selects a contiguous core window of length `settings.core_length`.
-
-The chosen core is the window with the smallest entropy sum across its columns. In practice, this favors the most informative and least ambiguous region of the PWM.
-
-### 3. Threshold Simulation
-
-For each motif:
-
-- Simulated sequences are sampled from the motif PWM.
-- Each simulated sequence is scored against the full PWM.
-- The selected core region is scored separately.
-- `thr1` and `thr2` percentiles become fixed full and core thresholds.
-
-Scores are negative log-likelihoods. Lower values indicate better matches.
-
-### 4. Core-First Motif Search
-
-`search_motif` scans each candidate window in this order:
-
-1. Score only the core region at the expected core offset.
-2. Reject the window immediately if the core score is above the core threshold.
-3. Score the full motif only after the core passes.
-4. Report the hit only if the full score also passes the full threshold.
-
-This keeps the original PWM-only logic while avoiding unnecessary full-motif scoring for weak windows.
-
-### 5. Parallel Search
-
-Sequence scanning is parallelized across available CPU threads. Each worker scans a chunk of sequences independently, then the results are merged and sorted for stable output.
+Scores are negative log-likelihoods, so lower values indicate better matches.
 
 ## Output
 
-### Thresholds
-
-`thresholds.tsv`:
+Threshold file:
 
 ```text
 # motif_id	full_threshold	core_threshold	core_start	motif_length
 ```
 
-| Column | Meaning |
-| --- | --- |
-| `motif_id` | Motif identifier. |
-| `full_threshold` | Maximum accepted full-motif negative log-likelihood score. |
-| `core_threshold` | Maximum accepted core-region negative log-likelihood score. |
-| `core_start` | 0-based core start position inside the motif. |
-| `motif_length` | Motif length in bases. |
-
-### Motif Hits
-
-`motif_hits.tsv`:
+Motif hit file:
 
 ```text
 sequence_id	motif_id	strand	start	end	full_score	core_score	matched_sequence
 ```
 
-| Column | Meaning |
-| --- | --- |
-| `sequence_id` | FASTA record identifier. |
-| `motif_id` | Matched motif identifier. |
-| `strand` | `+` or `-`. |
-| `start` | 1-based inclusive start coordinate on the input sequence. |
-| `end` | 1-based inclusive end coordinate on the input sequence. |
-| `full_score` | Full-motif negative log-likelihood score. |
-| `core_score` | Core-region negative log-likelihood score. |
-| `matched_sequence` | Matched sequence in motif orientation. |
+Coordinates are 1-based and inclusive on the input FASTA sequence.
 
-## Manual Commands
-
-The pipeline can also be run step by step:
+## Manual Usage
 
 ```bash
 ./meme2pwm examples/motifs.txt /tmp/pwm.tsv 0 45
@@ -217,15 +124,8 @@ The pipeline can also be run step by step:
 ./search_motif examples/sequences.fa /tmp/pwm.tsv results/thresholds.tsv results/motif_hits.tsv 5
 ```
 
-For batch input:
+Batch mode:
 
 ```bash
 ./search_motif path/to/fasta_dir /tmp/pwm.tsv results/thresholds.tsv results/batch_hits 5 --batch
 ```
-
-## Notes
-
-- Coordinates are reported on the original FASTA sequence.
-- `matched_sequence` for `-` strand hits is shown in motif orientation.
-- The current implementation is intentionally PWM-only and fixed-threshold based.
-- Generated binaries and `results/` are ignored by git.
